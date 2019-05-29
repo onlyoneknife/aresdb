@@ -27,6 +27,7 @@ type ControllerClient interface {
 
 	GetSchemaHash(namespace string) (string, error)
 	GetAllSchema(namespace string) ([]common.Table, error)
+	GetNamespaces() ([]string, error)
 	GetAssignmentHash(jobNamespace, instance string) (string, error)
 	GetAssignment(jobNamespace, instance string) (*rules.Assignment, error)
 }
@@ -124,6 +125,20 @@ func (c *ControllerHTTPClient) GetAllSchema(namespace string) (tables []common.T
 	err = c.getJSONResponse(request, &tables)
 	if err != nil {
 		err = utils.StackError(err, "controller client error fetching schema")
+		return
+	}
+
+	return
+}
+
+func (c *ControllerHTTPClient) GetNamespaces() (namespaces []string, err error) {
+	request, err := c.buildRequest(http.MethodGet, "/namespaces", nil)
+	if err != nil {
+		return
+	}
+	err = c.getJSONResponse(request, &namespaces)
+	if err != nil {
+		err = utils.StackError(err, "controller client error fetching namespaces")
 		return
 	}
 
