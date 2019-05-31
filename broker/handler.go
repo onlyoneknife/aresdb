@@ -14,3 +14,57 @@
 
 
 package broker
+
+import (
+	"github.com/gorilla/mux"
+	"github.com/uber/aresdb/utils"
+	"net/http"
+	"github.com/uber/aresdb/api"
+)
+
+type QueryHandler struct {
+	exec QueryExecutor
+}
+
+func NewQueryHandler(executor QueryExecutor) QueryHandler {
+	return QueryHandler{
+		exec: executor,
+	}
+}
+
+func (handler *QueryHandler)Register(router *mux.Router, wrappers ...utils.HTTPHandlerWrapper) {
+	router.HandleFunc("/query", utils.ApplyHTTPWrappers(handler.HandleQuery, wrappers)).Methods(http.MethodPost)
+}
+
+func (handler *QueryHandler)HandleQuery(w http.ResponseWriter, r *http.Request) {
+	var queryReqeust BrokerQueryRequest
+	err := api.ReadRequest(r, &queryReqeust)
+	if err != nil {
+		api.RespondWithError(w, err)
+		return
+	}
+
+	handler.exec.Execute(queryReqeust.Body.Namespace, queryReqeust.Body.Query, w)
+	// TODO: logging and metrics
+	return
+}
+
+// SQLRequest represents SQL query request. Debug mode will
+// run **each batch** in synchronized mode and report time
+// for each step.
+// swagger:parameters querySQL
+type BrokerQueryRequest struct {
+	// in: query
+	Verbose int `query:"verbose,optional" json:"verbose"`
+	// in: query
+	Debug int `query:"debug,optional" json:"debug"`
+	// in: header
+	Accept string `header:"Accept,optional" json:"accept"`
+	// in: header
+	Origin string `header:"Rpc-Caller,optional" json:"origin"`
+	// in: body
+	Body struct {
+		Namespace string `json:"namespace"`
+		Query string `json:"query"`
+	} `body:""`
+}

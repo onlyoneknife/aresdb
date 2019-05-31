@@ -1,15 +1,18 @@
 package cmd
 
 import (
-	"github.com/uber/aresdb/cmd/aresd/cmd"
-	"github.com/uber/aresdb/common"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/uber/aresdb/broker"
 	"github.com/uber/aresdb/broker/config"
-	"github.com/uber/aresdb/utils"
+	"github.com/uber/aresdb/cmd/aresd/cmd"
+	"github.com/uber/aresdb/common"
+	"github.com/uber/aresdb/datanode/topology"
 	"github.com/uber/aresdb/gateway"
+	"github.com/uber/aresdb/utils"
 	"time"
-	"github.com/uber/aresdb/metastore"
 )
 
 func Execute(setters ...cmd.Option) {
@@ -25,7 +28,7 @@ func Execute(setters ...cmd.Option) {
 	}
 
 	cmd := &cobra.Command{
-		Use:     "aresbroker",
+		Use:     "aresbrokerd",
 		Short:   "AresDB broker",
 		Long:    `AresDB broker is the gateway to send queries to AresDB`,
 		Example: `./ares --config config/ares-broker.yaml --port 9374`,
@@ -65,17 +68,38 @@ func start(cfg config.BrokerConfig, logger common.Logger, queryLogger common.Log
 	serverRestartTimer := scope.Timer("restart").Start()
 	defer serverRestartTimer.Stop()
 
+	// fetch and keep syncing schema
 	controllerClientCfg := cfg.ControllerConfig
 	if controllerClientCfg == nil {
 		logger.Fatal("Missing controller client config", err)
 	}
 
 	controllerClient := gateway.NewControllerHTTPClient(controllerClientCfg.Address, time.Duration(controllerClientCfg.TimeoutSec)*time.Second, controllerClientCfg.Headers)
-	controllerClient.FetchAllSchemas()
-	schemaFetchJob := metastore.NewSchemaFetchJob(5*60, metaStore, metastore.NewTableSchameValidator(), controllerClient, cfg.Cluster.ClusterName, "")
-	// immediate initial fetch
-	schemaFetchJob.FetchSchema()
-	go schemaFetchJob.Run()
+	schemaManager := broker.NewSchemaManager(controllerClient)
+	schemaManager.Run()
+
+	// init topology
+	// TODO
+	var topo topology.DynamicTopology
+
+	// executor
+	exec := broker.NewQueryExecutor(schemaManager, topo)
+
+	// init handlers
+	queryHandler := broker.NewQueryHandler(exec)
+
+	// start HTTP server
+	router := mux.NewRouter()
+	httpWrappers = append([]utils.HTTPHandlerWrapper{utils.WithMetricsFunc}, httpWrappers...)
+	queryHandler.Register(router.PathPrefix("/query").Subrouter(), httpWrappers...)
+
+	// Support CORS calls.
+	allowOrigins := handlers.AllowedOrigins([]string{"*"})
+	allowHeaders := handlers.AllowedHeaders([]string{"Accept", "Accept-Language", "Content-Language", "Origin", "Content-Type"})
+	allowMethods := handlers.AllowedMethods([]string{"GET", "PUT", "POST", "DELETE", "OPTIONS"})
+
+	utils.GetLogger().Infof("Starting HTTP server on port %d with max connection %d", cfg.Port, cfg.HTTP.MaxConnections)
+	utils.LimitServe(cfg.Port, handlers.CORS(allowOrigins, allowHeaders, allowMethods)(router), cfg.HTTP)
 }
 
 // AddFlags adds flags to command
@@ -84,7 +108,7 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.Flags().IntP("port", "p", 0, "Ares broker service port")
 }
 
-// ReadConfig populates BrokerConfig
-func ReadConfig(defaultConfig map[string]interface{}, flags *pflag.FlagSet) (config.BrokerConfig, error) {
-
+// ReadConfig populates BrokerConfig TODO
+func ReadConfig(defaultConfig map[string]interface{}, flags *pflag.FlagSet) (cfg config.BrokerConfig, err error) {
+	return
 }

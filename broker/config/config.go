@@ -24,4 +24,5 @@ type BrokerConfig struct {
 	Port int `yaml:"port"`
 
 	ControllerConfig *common.ControllerConfig `yaml:"controller,omitempty"`
+	HTTP      common.HTTPConfig      `yaml:"http"`
 }
